@@ -1,1 +1,39 @@
-midun-api
+# 备份文件
+*.bak
+*.tmp
+*.swp
+
+# 测试/临时文件
+*_proof.json
+tmp_*.json
+
+# 密钥/敏感文件
+*.key
+*.pem
+.env
+.env.*
+
+# ZoKrates编译产物
+zkp-circuit/out
+zkp-circuit/out.r1cs
+zkp-circuit/proving.key
+zkp-circuit/witness
+
+# Go编译产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+midun
+main
+
+# 依赖目录
+vendor/
+
+# 日志文件
+*.log
+
+# IDE配置
+.idea/
+.vscode/
