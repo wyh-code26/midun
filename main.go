@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/wuyuhang/midun/vc"
 	"github.com/wuyuhang/midun/zkp"
 )
 
@@ -23,6 +24,12 @@ type ZKPVerifyRequest struct {
 	PublicInputs []string `json:"public_inputs"`
 }
 
+// VC 签发请求结构体
+type VCIssueRequest struct {
+	UserID     string                 `json:"user_id"`
+	Attributes map[string]interface{} `json:"attributes"`
+}
+
 // 全局配置常量
 const (
 	VerificationKeyPath = "./zkp-circuit/verification.key"
@@ -34,6 +41,48 @@ const (
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
+}
+
+// VC 签发接口处理函数
+func handleVCIssue(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(Response{Error: "method not allowed"})
+		return
+	}
+
+	var req VCIssueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Error: "invalid request body"})
+		return
+	}
+
+	if req.UserID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Error: "user_id cannot be empty"})
+		return
+	}
+
+	cred, err := vc.IssueCredential(req.UserID, req.Attributes)
+	if err != nil {
+		log.Printf("VC issuance error: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(Response{Error: "credential issuance failed: " + err.Error()})
+		return
+	}
+
+	// 额外验证一次（可选，保证签发后能验证通过）
+	if !vc.VerifyCredential(cred) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(Response{Error: "credential verification failed after issuance"})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(cred)
 }
 
 // ZKP 验证接口处理函数（需要 API Key 认证）
@@ -112,6 +161,7 @@ func main() {
 
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/v1/zkp/verify", apiKeyMiddleware(handleZKPVerify))
+	mux.HandleFunc("/v1/vc/issue", apiKeyMiddleware(handleVCIssue))
 
 	addr := "0.0.0.0:8090"
 	log.Printf("密盾 API 服务启动，监听 %s", addr)
