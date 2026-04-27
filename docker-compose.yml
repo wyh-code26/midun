@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  midun-api:
+    image: midun-server:latest
+    build: .
+    ports:
+      - "127.0.0.1:8090:8090"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - midun-api
+    restart: unless-stopped
