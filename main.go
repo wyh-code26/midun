@@ -48,6 +48,18 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
+
+// 根路径处理
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+    if r.URL.Path != "/" {
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusNotFound)
+        json.NewEncoder(w).Encode(Response{Error: "not found"})
+        return
+    }
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(Response{Status: "ok", Message: "密盾服务在线"})
+}
 // VC 签发接口处理函数
 func handleVCIssue(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -289,6 +301,7 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func main() {
 	mux := http.NewServeMux()
 
+        mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/health", corsMiddleware(handleHealth))
 	mux.HandleFunc("/v1/zkp/verify", corsMiddleware(apiKeyMiddleware(handleZKPVerify)))
 	mux.HandleFunc("/v1/vc/issue", corsMiddleware(apiKeyMiddleware(handleVCIssue)))
