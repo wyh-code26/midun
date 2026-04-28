@@ -273,19 +273,32 @@ func handleAuditVerify(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Response{Valid: valid, Message: "audit chain integrity check"})
 }
 
+// CORS 中间件（开发调试用）
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next(w, r)
+	}
+}
 func main() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", handleHealth)
-	mux.HandleFunc("/v1/zkp/verify", apiKeyMiddleware(handleZKPVerify))
-	mux.HandleFunc("/v1/vc/issue", apiKeyMiddleware(handleVCIssue))
-	mux.HandleFunc("/v1/vc/verify", apiKeyMiddleware(handleVCVerify))
-	mux.HandleFunc("/v1/audit/logs", apiKeyMiddleware(handleAuditLogs))
-	mux.HandleFunc("/v1/audit/verify", apiKeyMiddleware(handleAuditVerify))
+	mux.HandleFunc("/health", corsMiddleware(handleHealth))
+	mux.HandleFunc("/v1/zkp/verify", corsMiddleware(apiKeyMiddleware(handleZKPVerify)))
+	mux.HandleFunc("/v1/vc/issue", corsMiddleware(apiKeyMiddleware(handleVCIssue)))
+	mux.HandleFunc("/v1/vc/verify", corsMiddleware(apiKeyMiddleware(handleVCVerify)))
+	mux.HandleFunc("/v1/audit/logs", corsMiddleware(apiKeyMiddleware(handleAuditLogs)))
+	mux.HandleFunc("/v1/audit/verify", corsMiddleware(apiKeyMiddleware(handleAuditVerify)))
 
 	// 声明式 API：凭证管理
-	mux.HandleFunc("/v1/vc/credentials", apiKeyMiddleware(handleVCList))
-	mux.HandleFunc("/v1/vc/credentials/", apiKeyMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/vc/credentials", corsMiddleware(apiKeyMiddleware(handleVCList)))
+	mux.HandleFunc("/v1/vc/credentials/", corsMiddleware(apiKeyMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
 			handleVCGet(w, r)
@@ -296,7 +309,7 @@ func main() {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			json.NewEncoder(w).Encode(Response{Error: "method not allowed"})
 		}
-	}))
+	})))
 
 	addr := "0.0.0.0:8090"
 	log.Printf("密盾 API 服务启动，监听 %s", addr)
