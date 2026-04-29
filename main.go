@@ -1,6 +1,8 @@
 package main
 
 import (
+    "fmt"
+    "time"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -47,7 +49,9 @@ const (
 // 生成随机临时文件路径，避免并发冲突
 func tempProofPath() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "./tmp_proof_fallback_" + hex.EncodeToString([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
+	}
 	return "./tmp_proof_" + hex.EncodeToString(b) + ".json"
 }
 
