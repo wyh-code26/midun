@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -29,20 +31,25 @@ type ZKPVerifyRequest struct {
 	PublicInputs []string `json:"public_inputs"`
 }
 
-// VC 签发请求结构体
+// VC 签发请求结构体 (不再包含 Attributes，由后端自动生成)
 type VCIssueRequest struct {
-	UserID       string                 `json:"user_id"`
-	Attributes   map[string]interface{} `json:"attributes"`
-	Proof        string                 `json:"proof"`
-	PublicInputs []string               `json:"public_inputs"`
+	UserID       string   `json:"user_id"`
+	Proof        string   `json:"proof"`
+	PublicInputs []string `json:"public_inputs"`
 }
 
 // 全局配置常量
 const (
 	VerificationKeyPath = "./zkp-circuit/verification.key"
-	TempProofPath       = "./tmp_proof.json"
 	ValidAPIKey         = "midun-dev-key-2026"
 )
+
+// 生成随机临时文件路径，避免并发冲突
+func tempProofPath() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return "./tmp_proof_" + hex.EncodeToString(b) + ".json"
+}
 
 // 健康检查接口
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -86,21 +93,27 @@ func handleVCIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 强制验证 ZKP 证明，失败则直接拒绝签发
-	if err := os.WriteFile(TempProofPath, []byte(req.Proof), 0600); err != nil {
+	tmpPath := tempProofPath()
+	if err := os.WriteFile(tmpPath, []byte(req.Proof), 0600); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(Response{Error: "invalid proof"})
 		return
 	}
-	defer os.Remove(TempProofPath)
+	defer os.Remove(tmpPath)
 
-	validProof, err := zkp.VerifyAgeProof(TempProofPath, VerificationKeyPath)
+	validProof, err := zkp.VerifyAgeProof(tmpPath, VerificationKeyPath)
 	if err != nil || !validProof {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(Response{Error: "zkp verification failed, credential issuance denied"})
 		return
 	}
 
-	cred, err := vc.IssueCredential(req.UserID, req.Attributes)
+	// 验证通过后，由后端根据验证结果自动生成声明
+	verifiedAttributes := map[string]interface{}{
+		"verified": "age_over_18",
+	}
+
+	cred, err := vc.IssueCredential(req.UserID, verifiedAttributes)
 	if err != nil {
 		log.Printf("VC issuance error: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -144,14 +157,15 @@ func handleZKPVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(TempProofPath, []byte(req.Proof), 0600); err != nil {
+	tmpPath := tempProofPath()
+	if err := os.WriteFile(tmpPath, []byte(req.Proof), 0600); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(Response{Error: "failed to process proof"})
 		return
 	}
-	defer os.Remove(TempProofPath)
+	defer os.Remove(tmpPath)
 
-	valid, err := zkp.VerifyAgeProof(TempProofPath, VerificationKeyPath)
+	valid, err := zkp.VerifyAgeProof(tmpPath, VerificationKeyPath)
 	if err != nil {
 		log.Printf("ZKP verification error: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)

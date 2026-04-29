@@ -1,54 +1,70 @@
 package vc
 
 import (
+	"encoding/json"
 	"sync"
 )
 
-// CredentialStore 凭证存储接口（内存实现，后续可切换 SQLite）
 type CredentialStore struct {
 	mu    sync.RWMutex
-	creds map[string]*Credential
+	creds map[string]string
 }
 
-// NewCredentialStore 创建凭证存储实例
 func NewCredentialStore() *CredentialStore {
 	return &CredentialStore{
-		creds: make(map[string]*Credential),
+		creds: make(map[string]string),
 	}
 }
 
-// Save 保存凭证
 func (s *CredentialStore) Save(cred *Credential) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.creds[cred.UserID] = cred
+	data, _ := json.Marshal(cred)
+	encrypted, err := encrypt(data)
+	if err != nil {
+		return
+	}
+	s.creds[cred.UserID] = encrypted
 }
 
-// Get 根据 userID 获取凭证
 func (s *CredentialStore) Get(userID string) *Credential {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.creds[userID]
+	enc, ok := s.creds[userID]
+	if !ok {
+		return nil
+	}
+	plain, err := decrypt(enc)
+	if err != nil {
+		return nil
+	}
+	var cred Credential
+	json.Unmarshal(plain, &cred)
+	return &cred
 }
 
-// List 列出所有凭证
 func (s *CredentialStore) List() []*Credential {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*Credential, 0, len(s.creds))
-	for _, cred := range s.creds {
-		result = append(result, cred)
+	for _, enc := range s.creds {
+		plain, err := decrypt(enc)
+		if err != nil {
+			continue
+		}
+		var cred Credential
+		json.Unmarshal(plain, &cred)
+		result = append(result, &cred)
 	}
 	return result
 }
 
-// Delete 根据 userID 删除凭证
 func (s *CredentialStore) Delete(userID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.creds[userID]; exists {
+	_, exists := s.creds[userID]
+	if exists {
 		delete(s.creds, userID)
-		return true
 	}
-	return false
+	return exists
 }
