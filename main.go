@@ -31,8 +31,10 @@ type ZKPVerifyRequest struct {
 
 // VC 签发请求结构体
 type VCIssueRequest struct {
-	UserID     string                 `json:"user_id"`
-	Attributes map[string]interface{} `json:"attributes"`
+	UserID       string                 `json:"user_id"`
+	Attributes   map[string]interface{} `json:"attributes"`
+	Proof        string                 `json:"proof"`
+	PublicInputs []string               `json:"public_inputs"`
 }
 
 // 全局配置常量
@@ -48,18 +50,18 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
-
 // 根路径处理
 func handleRoot(w http.ResponseWriter, r *http.Request) {
-    if r.URL.Path != "/" {
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusNotFound)
-        json.NewEncoder(w).Encode(Response{Error: "not found"})
-        return
-    }
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(Response{Status: "ok", Message: "密盾服务在线"})
+	if r.URL.Path != "/" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(Response{Error: "not found"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(Response{Status: "ok", Message: "密盾服务在线"})
 }
+
 // VC 签发接口处理函数
 func handleVCIssue(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -83,6 +85,21 @@ func handleVCIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 强制验证 ZKP 证明，失败则直接拒绝签发
+	if err := os.WriteFile(TempProofPath, []byte(req.Proof), 0600); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Error: "invalid proof"})
+		return
+	}
+	defer os.Remove(TempProofPath)
+
+	validProof, err := zkp.VerifyAgeProof(TempProofPath, VerificationKeyPath)
+	if err != nil || !validProof {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Error: "zkp verification failed, credential issuance denied"})
+		return
+	}
+
 	cred, err := vc.IssueCredential(req.UserID, req.Attributes)
 	if err != nil {
 		log.Printf("VC issuance error: %v", err)
@@ -97,7 +114,6 @@ func handleVCIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 存入内存存储
 	credStore.Save(cred)
 	auditLog.Record(req.UserID, "ISSUE", "credential issued")
 
@@ -150,33 +166,6 @@ func handleZKPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// VC 验证接口处理函数
-func handleVCVerify(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(Response{Error: "method not allowed"})
-		return
-	}
-
-	var cred vc.Credential
-	if err := json.NewDecoder(r.Body).Decode(&cred); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Error: "invalid request body"})
-		return
-	}
-
-	if vc.VerifyCredential(&cred) {
-		auditLog.Record(cred.UserID, "VC_VERIFY", "verification result: passed/failed")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(Response{Valid: true, Message: "credential verified"})
-	} else {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(Response{Valid: false, Message: "credential verification failed"})
-	}
-}
-
 // VC 凭证列表查询
 func handleVCList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -198,7 +187,6 @@ func handleVCGet(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Response{Error: "method not allowed"})
 		return
 	}
-	// 提取路径参数 /v1/vc/credentials/{user_id}
 	userID := r.URL.Path[len("/v1/vc/credentials/"):]
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -285,7 +273,7 @@ func handleAuditVerify(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Response{Valid: valid, Message: "audit chain integrity check"})
 }
 
-// CORS 中间件（开发调试用）
+// CORS 中间件
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -298,10 +286,43 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r)
 	}
 }
+
+// VC 验证接口处理函数
+func handleVCVerify(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(Response{Error: "method not allowed"})
+		return
+	}
+
+	var cred vc.Credential
+	if err := json.NewDecoder(r.Body).Decode(&cred); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(Response{Error: "invalid request body"})
+		return
+	}
+
+	result := "failed"
+	if vc.VerifyCredential(&cred) {
+		result = "passed"
+	}
+	auditLog.Record(cred.UserID, "VC_VERIFY", "verification result: "+result)
+
+	if result == "passed" {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(Response{Valid: true, Message: "credential verified"})
+	} else {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(Response{Valid: false, Message: "credential verification failed"})
+	}
+}
+
 func main() {
 	mux := http.NewServeMux()
 
-        mux.HandleFunc("/", handleRoot)
+	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/health", corsMiddleware(handleHealth))
 	mux.HandleFunc("/v1/zkp/verify", corsMiddleware(apiKeyMiddleware(handleZKPVerify)))
 	mux.HandleFunc("/v1/vc/issue", corsMiddleware(apiKeyMiddleware(handleVCIssue)))
@@ -309,7 +330,6 @@ func main() {
 	mux.HandleFunc("/v1/audit/logs", corsMiddleware(apiKeyMiddleware(handleAuditLogs)))
 	mux.HandleFunc("/v1/audit/verify", corsMiddleware(apiKeyMiddleware(handleAuditVerify)))
 
-	// 声明式 API：凭证管理
 	mux.HandleFunc("/v1/vc/credentials", corsMiddleware(apiKeyMiddleware(handleVCList)))
 	mux.HandleFunc("/v1/vc/credentials/", corsMiddleware(apiKeyMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
