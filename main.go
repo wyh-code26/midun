@@ -58,6 +58,7 @@ func tempProofPath() string {
 // 健康检查接口
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+    //nolint:errcheck
 	json.NewEncoder(w).Encode(Response{Status: "ok"})
 }
 
@@ -66,10 +67,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
+        //nolint:errcheck
 		json.NewEncoder(w).Encode(Response{Error: "not found"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+        //nolint:errcheck
 	json.NewEncoder(w).Encode(Response{Status: "ok", Message: "密盾服务在线"})
 }
 
