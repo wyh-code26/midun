@@ -39,7 +39,7 @@ func (s *CredentialStore) Get(userID string) *Credential {
 		return nil
 	}
 	var cred Credential
-	json.Unmarshal(plain, &cred)
+	_ = json.Unmarshal(plain, &cred)
 	return &cred
 }
 
@@ -53,7 +53,7 @@ func (s *CredentialStore) List() []*Credential {
 			continue
 		}
 		var cred Credential
-		json.Unmarshal(plain, &cred)
+		_ = json.Unmarshal(plain, &cred)
 		result = append(result, &cred)
 	}
 	return result
