@@ -59,7 +59,7 @@ func tempProofPath() string {
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
     //nolint:errcheck
-	json.NewEncoder(w).Encode(Response{Status: "ok"})
+	json.NewEncoder(w).Encode(Response{Status: "ok"}) //nolint:errcheck
 }
 
 // 根路径处理
@@ -68,12 +68,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
         //nolint:errcheck
-		json.NewEncoder(w).Encode(Response{Error: "not found"})
+		json.NewEncoder(w).Encode(Response{Error: "not found"}) //nolint:errcheck
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
         //nolint:errcheck
-	json.NewEncoder(w).Encode(Response{Status: "ok", Message: "密盾服务在线"})
+	json.NewEncoder(w).Encode(Response{Status: "ok", Message: "密盾服务在线"}) //nolint:errcheck
 }
 
 // VC 签发接口处理函数
